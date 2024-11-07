@@ -6,6 +6,7 @@
 #include <ESP8266mDNS.h>
 #include "LightBoxWebPage.h"
 #include "personal.h"
+#include "LedStripManager.h"
 
 #ifndef STASSID
 #define STASSID "wifi-name"
@@ -18,17 +19,12 @@
 #define FRONT_LED_PIN   D4
 #define BACK_LED_PIN    D1
 #define LED_COUNT       22
+#define LED_HALF_COUNT  LED_COUNT >> 1
 
 Adafruit_NeoPixel front_strip(LED_COUNT, FRONT_LED_PIN, NEO_GRB);
 Adafruit_NeoPixel back_strip(LED_COUNT, BACK_LED_PIN, NEO_GRB);
-
-uint32_t c1 = front_strip.Color(50,   100,   100);
-uint32_t c2 = front_strip.Color(50,   10,   200);
-uint32_t c3 = front_strip.Color(10,   200,   50);
-uint32_t* color_f;
-uint32_t* color_b;
-uint8_t light_index_f = 0;
-uint8_t light_index_b = 0;
+LedStripManager *front_strip_manager;
+LedStripManager *back_strip_manager;
 
 /////////////////////////////////////////////
 // Web Stuff
@@ -72,12 +68,10 @@ void handleJson() {
     Serial.println("Parsing json input failed!");
     return;
   }
-
   if (!myObject.hasOwnProperty("front_data")) {
     Serial.println("Missing json front data!");
     return;
   }
-
   if (!myObject.hasOwnProperty("back_data")) {
     Serial.println("Missing json front data!");
     return;
@@ -105,11 +99,15 @@ void handleJson() {
     Serial.print("blue: ");
     Serial.println(blue);
   } 
+  if (front_data.hasOwnProperty("pulse_step")) {
+    uint8_t pulse_step_f = (uint8_t) front_data["pulse_step"];
+    Serial.print("pulse_step_f: ");
+    Serial.println(pulse_step_f);
+    front_strip_manager->set_pulse_step(pulse_step_f);
+  }
   if (any_colors)
   {
-    c1 = front_strip.Color(red, green, blue); 
-    color_f = &c1;
-    light_index_f = 0;
+    front_strip_manager->set_color(red, green, blue);
   }
 
   any_colors = 0;
@@ -131,23 +129,16 @@ void handleJson() {
     Serial.print("blue: ");
     Serial.println(blue);
   } 
+  if (back_data.hasOwnProperty("pulse_step")) {
+    uint8_t pulse_step_b = (uint8_t) back_data["pulse_step"];
+    Serial.print("pulse_step_b: ");
+    Serial.println(pulse_step_b);
+    back_strip_manager->set_pulse_step(pulse_step_b);
+  }
   if (any_colors) {
-    c2 = front_strip.Color(red, green, blue); 
-    color_b = &c2;
-    light_index_b = 0;
+    back_strip_manager->set_color(red, green, blue); 
   }
 }
-
-/////////////////////////////////////////////
-// LED Functions
-/////////////////////////////////////////////
-void init_led_strip(Adafruit_NeoPixel* led_strip)
-{
-  led_strip->begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
-  led_strip->show();            // Turn OFF all pixels ASAP
-  led_strip->setBrightness(30); // Set BRIGHTNESS to about 1/5 (max = 255)
-}
-
 
 /////////////////////////////////////////////
 // Main Setup & Loop Functions
@@ -156,11 +147,9 @@ void setup(void) {
   Serial.begin(115200);
 
   WiFi.mode(WIFI_STA);
+  WiFi.setHostname("lightbox");
   WiFi.begin(ssid, password);
   Serial.println("");
-
-  color_f = &c1;
-  color_b = &c2;
 
   // Wait for connection
   Serial.print("Connecting to ");
@@ -186,32 +175,23 @@ void setup(void) {
   //////////////////////////////////////////////////
   // LED Stuff
   //////////////////////////////////////////////////
-  init_led_strip(&front_strip);
-  init_led_strip(&back_strip);
+  front_strip_manager = new LedStripManager(front_strip);
+  back_strip_manager = new LedStripManager(back_strip);
+
+  front_strip_manager->initialize();
+  back_strip_manager->initialize();
+
+  back_strip_manager->set_color(50, 50, 10);
+  front_strip_manager->set_color(100, 50, 10);
+
+  front_strip_manager->set_pulse_step(1);
+  back_strip_manager->set_pulse_step(2);
 }
 
 void loop(void) {
   server.handleClient(); 
   MDNS.update();
 
-  bool changed_a_light = false;
-  if (light_index_f < LED_COUNT)
-  {
-    changed_a_light = true;
-    light_index_f = light_index_f + 1;
-    front_strip.setPixelColor(light_index_f, *color_f);
-    front_strip.show();
-  } 
-
-  if (light_index_b < LED_COUNT)
-  {
-    changed_a_light = true;
-    light_index_b = light_index_b + 1;
-    back_strip.setPixelColor(light_index_b, *color_b);
-    back_strip.show();
-  } 
-
-  if (changed_a_light) {
-    delay(50);
-  }
+  front_strip_manager->update();
+  back_strip_manager->update();
 }
